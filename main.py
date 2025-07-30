@@ -3,9 +3,9 @@ from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
 
 # === CONFIGURAÇÕES DO INFLUXDB ===
-bucket = "test-01"
-org = "BB"
-token = "PVb7F594ixoE7xyWMjftXT6pmbOM-he29VawsfRuHunDC0zqjQQevZoi70tXMbF7FTxotbTJI6YLsR_OhS64xQ=="
+bucket = "CHANGE"
+org = "CHANGE"
+token = "TOKEN"
 url = "http://localhost:8086"
 
 # === API Externa (Open-Meteo) ===
