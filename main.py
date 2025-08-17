@@ -1,39 +1,80 @@
+import time
 import requests
-from influxdb_client import InfluxDBClient, Point, WritePrecision
-from influxdb_client.client.write_api import SYNCHRONOUS
+from prometheus_client import start_http_server, Gauge
 
-# === CONFIGURAÇÕES DO INFLUXDB ===
-bucket = "CHANGE"
-org = "CHANGE"
-token = "TOKEN"
-url = "http://localhost:8086"
+# Create a Gauge metric to track the price of Bitcoin.
+# A Gauge is used because the price can go both up and down.
+BITCOIN_PRICE_GAUGE = Gauge(
+    'bitcoin_price_usd',
+    'Current price of Bitcoin in USD.'
+)
 
-# === API Externa (Open-Meteo) ===
-weather_url = 'https://api.open-meteo.com/v1/forecast'
-params = {
-    'latitude': 48.85,
-    'longitude': 2.35,
-    'hourly': 'temperature_2m'
-}
+def fetch_bitcoin_price(url):
+    """
+    Fetches the current Bitcoin price from a public API.
+    
+    Args:
+        url (str): The API endpoint to fetch the price from.
+        
+    Returns:
+        float: The current Bitcoin price, or None if the request fails.
+    """
+    try:
+        # Make the HTTP GET request to the public API
+        response = requests.get(url)
+        
+        # Check if the request was successful
+        if response.status_code == 200:
+            data = response.json()
+            print(f"Successfully received API response. Raw data: {data}")
+            # The previous CoinDesk API is now unreliable.
+            # This updated code uses the Coinbase API.
+            # The price is now at data['data']['amount'] as a string, so we convert it to float.
+            price = float(data['data']['amount'])
+            return price
+        else:
+            print(f"Failed to fetch price. Status code: {response.status_code}")
+            print(f"Response text: {response.text}") # Print the raw response for debugging
+            return None
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred during the request: {e}")
+        return None
+    except (KeyError, ValueError) as e:
+        print(f"Error parsing JSON response: {e}. Check if API response format has changed.")
+        return None
 
-# === Buscar dados da API ===
-response = requests.get(weather_url, params=params)
-data = response.json()
+def run_price_collection_loop(url, interval):
+    """
+    Periodically fetches the Bitcoin price and updates the Prometheus Gauge.
+    """
+    print(f"Starting Bitcoin price collection loop...")
+    while True:
+        # Fetch the price and update the gauge
+        price = fetch_bitcoin_price(url)
+        if price is not None:
+            BITCOIN_PRICE_GAUGE.set(price)
+            print(f"Updated Bitcoin price metric: {price:.2f} USD")
+        else:
+            print("Price fetch failed, skipping metric update.")
+        
+        # Wait for the specified interval before the next update
+        time.sleep(interval)
 
-times = data['hourly']['time']
-temperatures = data['hourly']['temperature_2m']
+if __name__ == '__main__':
+    # Start the Prometheus HTTP server.
+    # Metrics will be available at http://localhost:8000
+    while True:
+        try:
+            start_http_server(8000)
+            print("Prometheus metrics server started on port 8000.")
+            break  # Exit the loop if the server starts successfully
+        except OSError as e:
+            print(f"Failed to start server on port 8000: {e}. Retrying in 5 seconds...")
+            time.sleep(5)
+    
+    # Define the API endpoint and the collection interval
+    api_url = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
+    collection_interval = 15  # seconds
 
-# === Enviar dados para o InfluxDB ===
-client = InfluxDBClient(url=url, token=token, org=org)
-write_api = client.write_api(write_options=SYNCHRONOUS)
-
-for t, temp in zip(times, temperatures):
-    point = (
-        Point("weather")
-        .tag("location", "paris")
-        .field("temperature", float(temp))
-        .time(t, WritePrecision.NS)
-    )
-    write_api.write(bucket=bucket, org=org, record=point)
-
-print("Dados enviados para o InfluxDB com sucesso.")
+    # Run the main application loop.
+    run_price_collection_loop(api_url, collection_interval)
